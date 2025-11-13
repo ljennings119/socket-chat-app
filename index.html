@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #chatForm { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+      #chatMessage { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
+    #chatMessage:focus { outline: none; }
+      #chatForm > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; }
+      #messages > li.newUser { color: green; font-style: italic; }
+      #messages > li.userDisconnected { color: red; font-style: italic }
+      #messages > li.self { font-weight: bold; }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h2>~ Socket Chat Application ~ <span id="userCount"></span></h2>
+
+    <ul id="messages"></ul>
+
+    <form id="nameForm" action="">
+        <label>Choose your nickname to join the chat: <input id="nickname" autocomplete="off" /></label><button>Send</button>
+    </form>
+
+    <form id="chatForm" action="" class="hidden"><span id="typingStatus"></span>
+        <input id="chatMessage" autocomplete="off" /><button>Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let socket = io();
+
+        let messages = document.getElementById('messages');
+        let chatForm = document.getElementById('chatForm');
+        let chatMessage = document.getElementById('chatMessage');
+        let nickname = document.getElementById('nickname');
+
+        window.onload = () => socket.emit('new user')
+
+        // updates the total count of users in the chat
+        function updateUserCount(msg) {
+            console.log(msg)
+            if (msg.totalUsers)
+            {
+                document.getElementById('userCount').innerText = msg.totalUsers === 1 ? '1 user is chatting' : msg.totalUsers + ' users are chatting'
+            }
+        }
+
+        // adds a new chat msg to the <ul> with a CSS class to allow different colours/styling
+        function printMsg(msg, msgClass) { 
+            let item = document.createElement('li');
+            item.textContent = (msg.nickname) ? msg.nickname + ': ' + msg.text : msg.text;
+            item.className = msgClass + ((msg.nickname == nickname.value) ? ' self' : '')
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);            
+        }
+
+        // when the chat form is submitted, get the value of the text input and send it back to the server
+        chatForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (chatMessage.value) {
+                socket.emit('chat message', { nickname: nickname.value, text: chatMessage.value});
+                chatMessage.value = '';
+            }
+        });
+
+        // when the choose a nickname form is submitted, get the value of the text input and send it back to the server
+        nameForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (nickname.value) {
+                socket.emit('choose name', nickname.value);
+                nameForm.className = 'hidden' // remove name form once chosen
+                chatForm.className = '' // and show chat form by removing hidden class
+            }
+        });     
+        
+        // when someone presses a key in the chat message input, send their name in an event back to the server
+        chatMessage.addEventListener('keydown', function(e) {
+            socket.emit('typing', nickname.value)
+        })
+
+        // custom events that this socket listens for
+        socket.on('new user', (msg) => { updateUserCount(msg); printMsg(msg, 'newUser') })
+        socket.on('disconnected', (msg) => { updateUserCount(msg); printMsg(msg, 'userDisconnected') })
+        socket.on('chat message', (msg) => printMsg(msg, 'chatMsg'))
+        socket.on('user typing', (name) => document.getElementById('typingStatus').innerText = name + ' is typing')
+        socket.on('not typing', () => document.getElementById('typingStatus').innerText = '')
+
+    </script> 
+  </body>
+</html>
