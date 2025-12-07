@@ -1,45 +1,54 @@
-const express = require('express');
-const app = express();
-const http = require('http');
-const server = http.createServer(app);
-
+const express = require("express");
+const http = require("http");
 const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
 const io = new Server(server);
 
-let totalUsers = 0; // global variable to store total users/sockets/clients in the chat
+app.use(express.static(__dirname));
 
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
-});
+let onlineUsers = {}; // { socket.id: nickname }
 
-io.on('connection', (socket) => {
-    socket.on('new user', () => {
-        totalUsers = io.engine.clientsCount; // the number of clients/sockets is the same as the number of users
-        socket.emit('new user', {nickname: null, text: 'hello and welcome to this chat!', totalUsers: totalUsers}) // send to only the initiating socket
-    })
+io.on("connection", (socket) => {
+    console.log("A user connected:", socket.id);
 
-    socket.on('chat message', (msg) => {
-        io.emit('chat message', msg); // sends latest chat message to all connected sockets
-        io.emit('not typing', '') // sends to everyone that no-one is typing right now, so it clears out 'xxx is typing'
+    // Assign temporary name
+    onlineUsers[socket.id] = "User-" + socket.id.slice(0, 4);
+
+    // Notify others that someone joined
+    socket.broadcast.emit("user-joined", onlineUsers[socket.id]);
+
+    // Send updated user list to all clients
+    io.emit("online-users", Object.values(onlineUsers));
+
+    // Set nickname
+    socket.on("set-nickname", (nickname) => {
+        onlineUsers[socket.id] = nickname;
+        io.emit("online-users", Object.values(onlineUsers));
     });
 
-    socket.on('choose name', (name) => {
-        totalUsers = io.engine.clientsCount; 
-        socket.broadcast.emit('new user', {nickname: name, text: 'has joined the chat', totalUsers: totalUsers}) // sends new user event to all but the initiating socket
-        socket.id = name; // stores the user nickname in the socket id so disconnecting prints who left
-    });    
+    // "User typing…" indicator
+    socket.on("typing", () => {
+        socket.broadcast.emit("user-typing", onlineUsers[socket.id]);
+    });
 
-    socket.on('typing', (name) => {
-        socket.broadcast.emit('user typing', name) // sends to all but the initiating socket which user is typing
-        socket.emit('not typing', '') // sends to the initiating socket/client, so it doesn't show '(self) is typing'
-    })
+    // Handle chat messages (DO NOT echo back to sender)
+    socket.on("chat-message", (msg) => {
+        socket.broadcast.emit("chat-message", {
+            user: onlineUsers[socket.id],
+            message: msg
+        });
+    });
 
-    socket.on('disconnect', () => {
-        totalUsers--; // io.engine.clientsCount is incorrect at this point, so manually decrease our global counter by one
-        socket.broadcast.emit('disconnected', {nickname: socket.id, text: 'has left the chat', totalUsers: totalUsers}) // sends disconnected event to all but the initiating socket
-    })
-});  
+    // Handle disconnect
+    socket.on("disconnect", () => {
+        socket.broadcast.emit("user-left", onlineUsers[socket.id]);
+        delete onlineUsers[socket.id];
+        io.emit("online-users", Object.values(onlineUsers));
+    });
+});
 
 server.listen(3000, () => {
-    console.log('listening on *:3000');
+    console.log("Server running on http://localhost:3000");
 });
